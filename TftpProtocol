@@ -4,11 +4,16 @@ import bgu.spl.net.api.BidiMessagingProtocol;
 import bgu.spl.net.srv.BlockingConnectionHandler;
 import bgu.spl.net.srv.ConnectionHandler;
 import bgu.spl.net.srv.Connections;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Arrays;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 
 class holder{
@@ -54,6 +59,8 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     private Connections<byte[]> connections; //should be String?
     private String userName;
     private HashMapErrors hashMapError = new HashMapErrors();
+    private Objects ACKLock;
+
 
 
     @Override
@@ -81,32 +88,127 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                 }
 
                 else{
-                    byte[] userNameBytes = Arrays.copyOfRange(message,2, message.length -2);
-                    this.userName = new String(userNameBytes);
+                    //byte[] userNameBytes = Arrays.copyOfRange(message,2, message.length -2);
+                    this.userName = new String(message,2,message.length -2, StandardCharsets.UTF_8);
                     if(holder.idsToUsermames.containsValue(this.userName)){
-                        byte[] errorUserNameExists = makeError(0);
+                        byte[] errorUserNameExists = makeError(0);//value 7?
                         this.connections.send(this.connectionId, errorUserNameExists);
                     }
 
                     else{
-                        //holder.ids_login. should be in server?
-                        //this.connections.connect(this.connectionId, );
-                        //using all hash maps
-                        holder.idsToUsermames.put(this.connectionId,this.userName);
+                        holder.ids_login.put(this.connectionId,true);
+                        holder.idsToUsermames.put(this.connectionId, this.userName);
+                        byte[] ack ={0,4,0,0};
+                        this.connections.send(this.connectionId, ack);
                     }
                 }
                 break;
             case RRQ:
+                if(!holder.ids_login.get(this.connectionId)){
+                    byte[] errorAlreadyLoggedIn = makeError(6);
+                    this.connections.send(this.connectionId, errorAlreadyLoggedIn);
+                }
+                else{
+                    String fileName = new String(message,2,message.length -2, StandardCharsets.UTF_8);
+                    readFile(fileName);
+                }
+
+                break;
+
+            case WRQ:
+                if(!holder.ids_login.get(this.connectionId)){
+                    byte[] errorAlreadyLoggedIn = makeError(6);
+                    this.connections.send(this.connectionId, errorAlreadyLoggedIn);
+                }
+                else{
+                    String fileName = new String(message,2,message.length -2, StandardCharsets.UTF_8);
+                    String filePath = "server/Flies/";
+                    String fullPath = filePath + fileName;
+                    try (FileInputStream fis = new FileInputStream(fullPath)) {
+                        byte[] errorAlreadyLoggedIn = makeError(5);
+                        this.connections.send(this.connectionId, errorAlreadyLoggedIn);
+                    }catch (IOException e){
+                        try (FileOutputStream fos = new FileOutputStream(fullPath)) {
+                            //check
+                            //create a list that contains all the filenames exist in files folder and done written - field + change evey place that we check if exists in the folder to check from the list
+//                            String dataToWrite = "Hello, this is a sample text.";
+//                            fos.write(dataToWrite.getBytes());
+//                            System.out.println("Data has been written to the file.");
+                        } catch (IOException er) {
+                            byte[] errorAlreadyLoggedIn = makeError(2);
+                            this.connections.send(this.connectionId, errorAlreadyLoggedIn);
+                        }
+                    }
+
+                }
 
 
                 break;
-            case ACK, BCAST:
+            case ACK:
+                if(!holder.ids_login.get(this.connectionId)){
+                    byte[] errorAlreadyLoggedIn = makeError(6);
+                    this.connections.send(this.connectionId, errorAlreadyLoggedIn);
+                }
+                else{
 
+                }
+                //ACKLock.notifyAll();
                 break;
-            case ERROR:
+            //case ERROR:
 
-                break;
+                //break;
             case DATA:
+                if(!holder.ids_login.get(this.connectionId)){
+                    byte[] errorAlreadyLoggedIn = makeError(6);
+                    this.connections.send(this.connectionId, errorAlreadyLoggedIn);
+                }
+                else{
+
+                }
+
+                break;
+
+            case DIRQ:
+                if(!holder.ids_login.get(this.connectionId)){
+                    byte[] errorAlreadyLoggedIn = makeError(6);
+                    this.connections.send(this.connectionId, errorAlreadyLoggedIn);
+                }
+                else{
+
+                }
+
+                break;
+
+            case DELRQ:
+                if(!holder.ids_login.get(this.connectionId)){
+                    byte[] errorAlreadyLoggedIn = makeError(6);
+                    this.connections.send(this.connectionId, errorAlreadyLoggedIn);
+                }
+                else{
+
+                }
+
+                break;
+
+            case BCAST:
+                if(!holder.ids_login.get(this.connectionId)){
+                    byte[] errorAlreadyLoggedIn = makeError(6);
+                    this.connections.send(this.connectionId, errorAlreadyLoggedIn);
+                }
+                else{
+
+                }
+
+                break;
+
+            case DISC:
+                if(!holder.ids_login.get(this.connectionId)){
+                    byte[] errorAlreadyLoggedIn = makeError(6);
+                    this.connections.send(this.connectionId, errorAlreadyLoggedIn);
+                }
+                else{
+
+                }
 
                 break;
         }
@@ -138,27 +240,57 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         }
     }
 
-    private static void readFile(String fileName) {
+    private void readFile(String fileName) {
         String filePath = "server/Flies/";
         String fullPath = filePath + fileName;
-        byte[] data = new byte[512];
-        data[0] = 0;
-        data[1] = 3;
-        int current = 2;
+        List<Byte> data = new ArrayList<>();
 
+        short size = 0;
+        short blockNumber = 1;
         try (FileInputStream fis = new FileInputStream(fullPath)) {
             int byteValue;
             while ((byteValue = fis.read()) != -1) {
-                data[current] = (byte)byteValue;
-                current++;
-                if(current==512){
-                    //process?
+                data.add((byte)byteValue);
+                size++;
+                if(size==511){
+                    handleDataPacket(size, blockNumber, data);
+                    size=0;
+                    blockNumber++;
+                    data.clear();
+                    //ACKLock.wait(); wait for ack packet
                 }
             }
+            handleDataPacket(size, blockNumber, data);
+            //ACKLock.wait(); wait for ack packet
         } catch (IOException e) {
-            e.printStackTrace();
+            byte[] errorFileDoesntExists = makeError(1);
+            this.connections.send(this.connectionId, errorFileDoesntExists);
         }
     }
+
+    public void handleDataPacket(short size, short blockNumber,  List<Byte> data){
+        byte[] packetSize = new byte[]{(byte) (size >> 8), (byte) (size & 0xff)};
+
+        byte[] dataPacket = new byte[size + 7];
+        dataPacket[0] = (byte)0;
+        dataPacket[1] = (byte)3;
+        dataPacket[2] = packetSize[0];
+        dataPacket[3] = packetSize[1];
+
+        byte[] blockNumberByte = new byte[]{(byte) (blockNumber >> 8), (byte) (blockNumber & 0xff)};
+        dataPacket[4] = blockNumberByte[0];
+        dataPacket[5] = blockNumberByte[1];
+
+        int j = 6;
+        for (int i = 0; i < data.size(); i++) {
+            dataPacket[j] = data.get(i);
+            j++;
+        }
+
+        dataPacket[dataPacket.length-1] = (byte) 0;
+        this.connections.send(this.connectionId, dataPacket);
+    }
+
 
     private TftpEncoderDecoder.Opcode peekOpcode(byte[] message) {//Anni
         assert message.length >= 2;
