@@ -12,7 +12,7 @@ public class ConnectionsImpl<T> implements Connections<T> {
         this.activeClientsMap = new ConcurrentHashMap<>();//do we need Integer, ConnectionHandler<T> in the <>?
     }
 
-    private static ConnectionsImpl getInstance(){
+    public static ConnectionsImpl getInstance(){
         return SingletonHolder.instance;
     }
 
