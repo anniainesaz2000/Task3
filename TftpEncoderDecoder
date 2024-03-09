@@ -8,7 +8,7 @@ import bgu.spl.net.api.MessageEncoderDecoder;
 public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
     //TODO: Implement here the TFTP encoder and decoder
 
-    private byte[] bytes;
+    private byte[] bytes;//where we actually fill it??
     private Opcode opcode;
     private long optExpectedLen;
     private int current;
@@ -33,14 +33,16 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
     }
 
     public TftpEncoderDecoder() {
-        this.bytes = new byte[1 << 10];
+        this.bytes = new byte[1 << 10];//how do we know the size?
         this.opcode = Opcode.None;
         this.optExpectedLen = Long.MAX_VALUE;
         this.current = 0;
     }
 
     public byte[] poolBytes() {
-        byte[] message = this.bytes.clone();
+        //byte[] message = this.bytes.clone();
+        byte[] message = new byte[this.current];
+        System.arraycopy(message, 0, this.bytes, 0, message.length);
         this.bytes = new byte[1 << 10];
         this.current = 0;
         this.setOpcode(Opcode.None);
@@ -77,8 +79,9 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
 
     private Opcode peekOpcode() {
         assert this.bytes.length >= 2;
-        int u16Opcode = (this.bytes[1] & 0xFF) << 8 | (this.bytes[0] & 0xFF);
-        return Opcode.fromU16(u16Opcode);
+        int u16Opcode = (this.bytes[1] & 0xFF) << 8 | (this.bytes[0] & 0xFF);//short?
+        this.opcode = Opcode.fromU16(u16Opcode);
+        return this.opcode;
     }
 
 
@@ -87,26 +90,29 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
     public byte[] decodeNextByte(byte nextByte) {//maybe convert to string?(pop string)
         // TODO: implement this
 
-        if (this.bytes.length >= this.optExpectedLen && nextByte == 0x0) {
+        if (this.current >= this.optExpectedLen && nextByte == 0x0) {
             Opcode opcode = this.getOpcode();
             byte[] message = this.poolBytes();
             this.setOpcode(Opcode.None);
             return message;
         } else {
-            pushByte(nextByte);
-            if (this.current == 2) {
-                this.setOpcode(this.peekOpcode());
-            }
-            if (this.opcode == Opcode.DATA && this.current == 4) {
-                int size = (this.bytes[3] & 0xFF) << 8 | (this.bytes[2] & 0xFF);
-                this.optExpectedLen = 6 + size;
-            }
-            if (!this.haveAddedZero(this.opcode) && this.bytes.length == this.optExpectedLen) {
+            if (!this.haveAddedZero(this.opcode) && this.current == this.optExpectedLen) {
                 Opcode opcode = this.getOpcode();
                 byte[] message = this.poolBytes();
                 this.setOpcode(Opcode.None);
                 return message;
             }
+
+            pushByte(nextByte);
+
+            if (this.current == 2) {
+                this.setOpcode(this.peekOpcode());
+            }
+            if (this.opcode == Opcode.DATA && this.current == 4) {
+                int size = (this.bytes[3] & 0xFF) << 8 | (this.bytes[2] & 0xFF);//short?
+                this.optExpectedLen = 6 + size;
+            }
+
             return null;
         }
     }
@@ -122,20 +128,20 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
     @Override
     public byte[] encode(byte[] message) {
         //TODO: implement this
-        Opcode opcode = Opcode.fromU16((message[1] & 0xFF) << 8 | (message[0] & 0xFF));
+        Opcode opcode = Opcode.fromU16((short)(((short)message[1] & 0xFF) << 8 | ((short)message[0] & 0xFF)));
         switch (opcode) {
             case None:
                 throw new RuntimeException("Invalid opcode");
-            case RRQ, WRQ, ERROR, BCAST, LOGRQ, DELRQ:
-                byte[] result = new byte[message.length + 1];
-                System.arraycopy(message, 0, result, 0, message.length);
-                result[message.length] = ((byte) 0x0);
-                return result;
-
-            case ACK, DIRQ, DISC, DATA:
-                return message;
+//            case RRQ, WRQ, ERROR, BCAST, LOGRQ, DELRQ:
+//                byte[] result = new byte[message.length + 1];
+//                System.arraycopy(message, 0, result, 0, message.length);
+//                result[message.length] = ((byte) 0x0);
+//                return result;
+//
+//            case ACK, DIRQ, DISC, DATA:
+//                return message;
             default:
-                return null;
+                return message;
         }
     }
 
