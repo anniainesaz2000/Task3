@@ -1,0 +1,29 @@
+package bgu.spl.net.impl.tftp;
+import bgu.spl.net.impl.echo.EchoProtocol;
+import bgu.spl.net.impl.echo.LineMessageEncoderDecoder;
+import bgu.spl.net.srv.ConnectionsImpl;
+import bgu.spl.net.srv.Server;
+
+public class TftpServer {
+    //TODO: Implement this
+    //use factory -already in BaseServer!!!!
+    //interrupt and create threads
+    //implement execute from baseServer
+    //connections.connect, idslogin(id,false)
+    //should extend BaseServer an implement execute?
+
+    public static void main(String[] args) {
+
+        if(args.length == 2){
+            Server.threadPerClient(
+                    Integer.parseInt(args[1]), //port
+                    (() -> new TftpProtocol()), //protocol factory
+                    TftpEncoderDecoder::new //message encoder decoder factory
+            ).serve();
+        }
+
+
+    }
+
+    ConnectionsImpl connections = ConnectionsImpl.getInstance();
+}
