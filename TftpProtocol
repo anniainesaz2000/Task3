@@ -15,10 +15,33 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
 
 class holder{
     static ConcurrentHashMap<Integer,Boolean> ids_login = new ConcurrentHashMap<>();
     static ConcurrentHashMap<Integer,String> idsToUsermames = new ConcurrentHashMap<>();
+
+    static{
+        Path dir = Paths.get("server/Flies/");
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            List<String> fileNames = new ArrayList<>();
+
+            // Iterate through the files in the folder
+            for (Path file : stream) {
+                // Add the file name to the list
+                fileNames.add(file.getFileName().toString());
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
 
 }
 
@@ -207,6 +230,12 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                     this.connections.send(this.connectionId, errorAlreadyLoggedIn);
                 }
                 else{
+                    if (holder.ids_login.containsKey(this.connectionId)){
+                        holder.ids_login.put(this.connectionId, false);
+                    }
+                    holder.idsToUsermames.remove(this.connectionId);
+                    this.connections.disconnect(this.connectionId);
+                    this.shouldTerminate = true;
 
                 }
 
