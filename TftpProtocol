@@ -24,12 +24,17 @@ import java.nio.file.Paths;
 class holder{
     static ConcurrentHashMap<Integer,Boolean> ids_login = new ConcurrentHashMap<>();
     static ConcurrentHashMap<Integer,String> idsToUsermames = new ConcurrentHashMap<>();
+    private static List<String> fileNames; // Make it private to encapsulate it
 
-    static{
+    static {
+        initializeFileNames();
+    }
+
+    private static void initializeFileNames() {
         Path dir = Paths.get("server/Flies/");
 
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
-            List<String> fileNames = new ArrayList<>();
+            fileNames = new ArrayList<>();
 
             // Iterate through the files in the folder
             for (Path file : stream) {
@@ -40,6 +45,20 @@ class holder{
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    // Public method to access fileNames from another class
+    public static List<String> getFileNames() {
+        return fileNames;
+    }
+
+    // Public method to add a new file name to the list
+    public static void addFileName(String fileName) {
+        fileNames.add(fileName);
+    }
+
+    public static void deleteFileName(String fileName) {
+        fileNames.remove(fileName);
     }
 
 
@@ -82,7 +101,11 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     private Connections<byte[]> connections; //should be String?
     private String userName;
     private HashMapErrors hashMapError = new HashMapErrors();
-    private Objects ACKLock;
+    private List<Byte> clientFile = new ArrayList<>();
+    private List<Byte> dataFromServer = new ArrayList<>();
+    private int indexACK = 0;
+    private String clientFileName;
+
 
 
 
@@ -133,7 +156,21 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                 }
                 else{
                     String fileName = new String(message,2,message.length -2, StandardCharsets.UTF_8);
-                    readFile(fileName);
+
+                    String filePath = "server/Flies/";
+                    String fullPath = filePath + fileName;
+                    try (FileInputStream fis = new FileInputStream(fullPath)) {
+                        int byteValue;
+                        while ((byteValue = fis.read()) != -1) {
+                            this.dataFromServer.add((byte)byteValue);
+                            }
+
+                        }
+                    catch (IOException exp) {
+                        byte[] errorFileDoesntExists = makeError(1);
+                        this.connections.send(this.connectionId, errorFileDoesntExists);
+                    }
+                    readData((short)1);
                 }
 
                 break;
@@ -144,23 +181,16 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                     this.connections.send(this.connectionId, errorAlreadyLoggedIn);
                 }
                 else{
-                    String fileName = new String(message,2,message.length -2, StandardCharsets.UTF_8);
+                    this.clientFileName = new String(message,2,message.length -2, StandardCharsets.UTF_8);
                     String filePath = "server/Flies/";
-                    String fullPath = filePath + fileName;
+                    String fullPath = filePath + this.clientFileName;
                     try (FileInputStream fis = new FileInputStream(fullPath)) {
                         byte[] errorAlreadyLoggedIn = makeError(5);
                         this.connections.send(this.connectionId, errorAlreadyLoggedIn);
                     }catch (IOException e){
-                        try (FileOutputStream fos = new FileOutputStream(fullPath)) {
-                            //check
-                            //create a list that contains all the filenames exist in files folder and done written - field + change evey place that we check if exists in the folder to check from the list
-//                            String dataToWrite = "Hello, this is a sample text.";
-//                            fos.write(dataToWrite.getBytes());
-//                            System.out.println("Data has been written to the file.");
-                        } catch (IOException er) {
-                            byte[] errorAlreadyLoggedIn = makeError(2);
-                            this.connections.send(this.connectionId, errorAlreadyLoggedIn);
-                        }
+                        byte[] ack ={0,4,0,0};
+                        this.connections.send(this.connectionId, ack);
+
                     }
 
                 }
@@ -168,14 +198,15 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
 
                 break;
             case ACK:
+
                 if(!holder.ids_login.get(this.connectionId)){
                     byte[] errorAlreadyLoggedIn = makeError(6);
                     this.connections.send(this.connectionId, errorAlreadyLoggedIn);
                 }
                 else{
-
+                    short blockNum = (short)(((short)message[3] & 0xFF) << 8 | ((short)message[2] & 0xFF));//parameter for readFile
+                    readData(blockNum);
                 }
-                //ACKLock.notifyAll();
                 break;
             //case ERROR:
 
@@ -186,7 +217,32 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                     this.connections.send(this.connectionId, errorAlreadyLoggedIn);
                 }
                 else{
+                    short size  = (short)(((short)message[3] & 0xFF) << 8 | ((short)message[2] & 0xFF));
+                    for (int i = 6; i < message.length; i++) {
+                        this.clientFile.add(message[i]);
+                    }
 
+                    if(size<512){
+                        String filePath = "server/Flies/";
+                        String fullPath = filePath + this.clientFileName;
+                        try (FileOutputStream fos = new FileOutputStream(fullPath)) {
+                            //create a list that contains all the filenames exist in files folder and done written - field + change evey place that we check if exists in the folder to check from the list
+                            byte[] dataToWrite = new byte[this.clientFile.size()];
+                            for (int i = 0; i < this.clientFile.size(); i++) {
+                                dataToWrite[i] = this.clientFile.get(i);
+                            }
+                            fos.write(dataToWrite);
+                            holder.addFileName(this.clientFileName);
+                            this.clientFile.clear();
+
+                        } catch (IOException er) {
+                            byte[] errorAlreadyLoggedIn = makeError(2);
+                            this.connections.send(this.connectionId, errorAlreadyLoggedIn);
+                        }
+                    }
+
+                    byte[] ack ={0,4,message[4],message[5]};
+                    this.connections.send(this.connectionId, ack);
                 }
 
                 break;
@@ -197,7 +253,23 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                     this.connections.send(this.connectionId, errorAlreadyLoggedIn);
                 }
                 else{
+                    for(String name: holder.getFileNames()){
+                        byte[] bytename = name.getBytes();
 
+                        for(byte b:bytename){
+                            this.dataFromServer.add(b);
+                        }
+                        this.dataFromServer.add((byte)0x0);
+
+                    }
+                    short size;
+                    if(this.dataFromServer.size()<512){
+                        size = (short)(this.dataFromServer.size() - 1);
+                    }
+                    else {
+                        size = 511;
+                    }
+                    sendDataPacket(size, (short)1,  this.dataFromServer);
                 }
 
                 break;
@@ -208,7 +280,21 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                     this.connections.send(this.connectionId, errorAlreadyLoggedIn);
                 }
                 else{
+                //delete from fileNames list
+                    String fileToDelete = new String(message,2,message.length -2, StandardCharsets.UTF_8);
+                    String filePath = "server/Flies/" + fileToDelete;
 
+                    // Create a Path object
+                    Path path = Paths.get(filePath);
+
+                    try {
+                        // Delete the file using Files.delete method
+                        Files.delete(path);
+                        holder.deleteFileName(fileToDelete);
+                        System.out.println("File deleted successfully");
+                    } catch (IOException e) {
+                        System.err.println("Error deleting the file: " + e.getMessage());
+                    }
                 }
 
                 break;
@@ -269,35 +355,22 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         }
     }
 
-    private void readFile(String fileName) {
-        String filePath = "server/Flies/";
-        String fullPath = filePath + fileName;
+    private void readData(short blockNumber) {
         List<Byte> data = new ArrayList<>();
 
-        short size = 0;
-        short blockNumber = 1;
-        try (FileInputStream fis = new FileInputStream(fullPath)) {
-            int byteValue;
-            while ((byteValue = fis.read()) != -1) {
-                data.add((byte)byteValue);
-                size++;
-                if(size==511){
-                    handleDataPacket(size, blockNumber, data);
-                    size=0;
-                    blockNumber++;
-                    data.clear();
-                    //ACKLock.wait(); wait for ack packet
-                }
+        short capacity = 0;
+        for(int i = this.indexACK; i < this.dataFromServer.size(); i++){
+            data.add(this.dataFromServer.get(i));
+            this.indexACK++;
+            capacity++;
+            if(capacity == 512 ||  i == this.dataFromServer.size()-1){
+                sendDataPacket(capacity, blockNumber, data);
             }
-            handleDataPacket(size, blockNumber, data);
-            //ACKLock.wait(); wait for ack packet
-        } catch (IOException e) {
-            byte[] errorFileDoesntExists = makeError(1);
-            this.connections.send(this.connectionId, errorFileDoesntExists);
         }
+
     }
 
-    public void handleDataPacket(short size, short blockNumber,  List<Byte> data){
+    public void sendDataPacket(short size, short blockNumber,  List<Byte> data){
         byte[] packetSize = new byte[]{(byte) (size >> 8), (byte) (size & 0xff)};
 
         byte[] dataPacket = new byte[size + 7];
@@ -318,6 +391,11 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
 
         dataPacket[dataPacket.length-1] = (byte) 0;
         this.connections.send(this.connectionId, dataPacket);
+
+        if(this.indexACK == this.dataFromServer.size()-1){
+            this.dataFromServer.clear();
+            this.indexACK = 0;
+        }
     }
 
 
