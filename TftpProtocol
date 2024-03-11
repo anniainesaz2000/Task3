@@ -115,7 +115,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         this.shouldTerminate = false;
         this.connectionId = connectionId;
         this.connections = connections;
-        holder.ids_login.put(connectionId, true);
+        holder.ids_login.put(connectionId, false);
         //throw new UnsupportedOperationException("Unimplemented method 'start'");
     }
 
@@ -205,7 +205,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                 }
                 else{
                     short blockNum = (short)(((short)message[3] & 0xFF) << 8 | ((short)message[2] & 0xFF));//parameter for readFile
-                    readData(blockNum);
+                    readData((short)(blockNum + 1));
                 }
                 break;
             //case ERROR:
@@ -234,6 +234,12 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                             fos.write(dataToWrite);
                             holder.addFileName(this.clientFileName);
                             this.clientFile.clear();
+                            holder.ids_login.forEach((key, value) -> {
+                                if (value) {
+                                    byte[] bcast = bcastPacket(true, this.clientFileName);
+                                    this.connections.send(key, bcast);
+                                }
+                            });
 
                         } catch (IOException er) {
                             byte[] errorAlreadyLoggedIn = makeError(2);
@@ -270,6 +276,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                         size = 511;
                     }
                     sendDataPacket(size, (short)1,  this.dataFromServer);
+
                 }
 
                 break;
@@ -291,6 +298,16 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                         // Delete the file using Files.delete method
                         Files.delete(path);
                         holder.deleteFileName(fileToDelete);
+                        byte[] ack ={0,4,0,0};
+                        this.connections.send(this.connectionId, ack);
+
+                        holder.ids_login.forEach((key, value) -> {
+                            if (value) {
+                                byte[] bcast = bcastPacket(false, fileToDelete);
+                                this.connections.send(key, bcast);
+                            }
+                        });
+
                         System.out.println("File deleted successfully");
                     } catch (IOException e) {
                         System.err.println("Error deleting the file: " + e.getMessage());
@@ -299,16 +316,16 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
 
                 break;
 
-            case BCAST:
-                if(!holder.ids_login.get(this.connectionId)){
-                    byte[] errorAlreadyLoggedIn = makeError(6);
-                    this.connections.send(this.connectionId, errorAlreadyLoggedIn);
-                }
-                else{
-
-                }
-
-                break;
+//            case BCAST:
+//                if(!holder.ids_login.get(this.connectionId)){
+//                    byte[] errorAlreadyLoggedIn = makeError(6);
+//                    this.connections.send(this.connectionId, errorAlreadyLoggedIn);
+//                }
+//                else{
+//
+//                }
+//
+//                break;
 
             case DISC:
                 if(!holder.ids_login.get(this.connectionId)){
@@ -322,6 +339,8 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                     holder.idsToUsermames.remove(this.connectionId);
                     this.connections.disconnect(this.connectionId);
                     this.shouldTerminate = true;
+                    byte[] ack ={0,4,0,0};
+                    this.connections.send(this.connectionId, ack);
 
                 }
 
@@ -399,6 +418,24 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     }
 
 
+    private byte[] bcastPacket(boolean wasAdded, String fileName){
+        byte [] fileNameBytes = fileName.getBytes();
+        byte [] bcast = new byte [4 + fileNameBytes.length];
+        bcast[0] = 0;
+        bcast [1] = 9;
+        if(wasAdded){
+            bcast[2] = 1;
+        }
+        else{
+            bcast[2] = 0;
+        }
+        System.arraycopy(fileNameBytes, 0, bcast, 3, fileNameBytes.length);
+        bcast[bcast.length-1] = 0;
+
+        return bcast;
+
+    }
+
     private TftpEncoderDecoder.Opcode peekOpcode(byte[] message) {//Anni
         assert message.length >= 2;
         int u16Opcode = (message[1] & 0xFF) << 8 | (message[0] & 0xFF);
@@ -406,13 +443,13 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     }
 
     @Override
-    public boolean shouldTerminate() {
+    public boolean shouldTerminate() {//check if we should call it frim DISC
         // TODO implement this
         if(this.shouldTerminate){
-            this.connections.disconnect(this.connectionId);
-            holder.ids_login.remove(this.connectionId);
+            Thread.currentThread().interrupt();
         }
         return this.shouldTerminate;
+        //connectionHandler.close()?
 
         //throw new UnsupportedOperationException("Unimplemented method 'shouldTerminate'");
     } 
