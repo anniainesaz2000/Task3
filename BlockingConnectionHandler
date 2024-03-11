@@ -18,12 +18,15 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
     private volatile boolean connected = true;
 
     private static volatile int idsCounter = 0;
+    private ConnectionsImpl connections = ConnectionsImpl.getInstance();
 
     public BlockingConnectionHandler(Socket sock, MessageEncoderDecoder<T> reader, BidiMessagingProtocol<T> protocol) {
         this.sock = sock;
         this.encdec = reader;
         this.protocol = protocol;
         idsCounter++;
+        this.protocol.start(idsCounter,connections);
+
     }
 
     public int getIdsCounter(){
@@ -37,7 +40,6 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
 
             in = new BufferedInputStream(sock.getInputStream());
             out = new BufferedOutputStream(sock.getOutputStream());
-
             while (!protocol.shouldTerminate() && connected && (read = in.read()) >= 0) {
                 T nextMessage = encdec.decodeNextByte((byte) read);
                 if (nextMessage != null) {
@@ -63,7 +65,7 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
     }
 
     @Override
-    public void send(T msg) {//already given in run but hedi wrote it... + According to Hedi theres a bug in it
+    public synchronized void send(T msg) {//already given in run but hedi wrote it... + According to Hedi theres a bug in it
         try{
             if(msg != null){
                 out.write(encdec.encode(msg));
