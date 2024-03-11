@@ -13,8 +13,7 @@ public class TftpServer {
     //should extend BaseServer an implement execute?
 
     public static void main(String[] args) {
-
-        if(args.length == 2){
+        
             Server.threadPerClient(
                     //Integer.parseInt(args[1]), //port
                     7777,
@@ -22,7 +21,7 @@ public class TftpServer {
                     (() -> new TftpEncoderDecoder())//message encoder decoder factory
                     //TftpEncoderDecoder::new
             ).serve();
-        }
+
 
 
     }
