@@ -55,13 +55,18 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
             case None:
                 this.optExpectedLen = Long.MAX_VALUE;
                 break;
-            case DIRQ, DISC:
+            case DIRQ:
+            case DISC:
                 this.optExpectedLen = 2L;
                 break;
-            case RRQ, WRQ , LOGRQ, DELRQ:
+            case RRQ:
+            case WRQ:
+            case LOGRQ:
+            case DELRQ:
                 this.optExpectedLen = 3L;
                 break;
-            case ACK, BCAST:
+            case ACK:
+            case BCAST:
                 this.optExpectedLen = 4L;
                 break;
             case ERROR:
@@ -147,7 +152,13 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
 
     private boolean haveAddedZero(Opcode opcode) {
         switch (opcode) {
-            case RRQ, WRQ, ERROR, BCAST, LOGRQ, DELRQ, None:
+            case RRQ:
+            case WRQ:
+            case ERROR:
+            case BCAST:
+            case LOGRQ:
+            case DELRQ:
+            case None:
                 return true;
             default:
                 return false;
