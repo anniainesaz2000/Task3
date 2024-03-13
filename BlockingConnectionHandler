@@ -26,6 +26,7 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
         this.protocol = protocol;
         idsCounter++;
         this.protocol.start(idsCounter,connections);
+        this.connections.connect(idsCounter, this);
 
     }
 
