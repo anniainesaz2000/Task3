@@ -1,0 +1,274 @@
+package bgu.spl.net.impl.tftp;
+
+import java.io.*;
+import java.net.Socket;
+import java.net.SocketException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Scanner;
+import java.util.concurrent.atomic.AtomicReference;
+
+
+public class TftpClient {
+    //TODO: implement the main logic of the client, when using a thread per client the main logic goes here
+    public static void main(String[] args) {
+        Thread inputThread;
+        Thread listenerThread;
+
+        if (args.length == 0) {
+            args = new String[]{"localhost", "hello"};
+        }
+
+        if (args.length < 2) {
+            System.out.println("you must supply two arguments: host, message");
+            System.exit(1);
+        }
+        AtomicReference<String> user = new AtomicReference<>("");
+//        try (Socket sock = new Socket(args[0], 7777);
+//             BufferedInputStream in = new BufferedReader(new InputStreamReader(sock.getInputStream()));
+//             BufferedOutputStream out = new BufferedWriter(new OutputStreamWriter(sock.getOutputStream()))) {
+//            TftpProtocol protocol = new TftpProtocol();
+//            TftpEncoderDecoder encdec = new TftpEncoderDecoder();
+
+//            inputThread = new Thread(() -> {
+//                Scanner scanner = new Scanner(System.in);
+//                try {
+//                    while (!protocol.shouldTerminate()) {
+//                        user.set(scanner.nextLine());
+//                        ////// as long as the protocol should not terminate, keep reading from the user + synchronize with the listener thread
+////                        String msg = scanner.nextLine();
+////                        byte[] response = protocol.process(msg.getBytes(StandardCharsets.UTF_8));
+////                        out.write(response);
+////                        out.flush();
+//                    }
+//                } catch (IOException e) {
+//                    e.printStackTrace();
+//                }
+//            }, "inputThread");
+//
+//
+//               listenerThread = new Thread(() -> {
+//                   int read;
+//                   while (!protocol.shouldTerminate() && sock.isConnected()) {
+//                       try{
+//                           while((read = in.read()) >= 0) {
+//                               byte[] response = encdec.decodeNextByte((byte) read);
+//                               if (response != null) {
+//
+//                               // process the response
+////                                   out.write(response);
+////                                   out.flush();
+//                               }
+//
+//                 } catch (IOException e {
+//                      e.printStackTrace();
+//                 }
+//                       }
+//                   }}, "listenerThread");
+//               inputThread.start();
+//               listenerThread.start();
+    }
+
+
+    private void PreparingTask(String message, BufferedOutputStream buffer, TftpEncoderDecoder encoderdecoder, TftpClientProtocol protocol) {
+        //byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
+        String[] split = message.split(" ");
+        protocol.setClientOpcode(split[0]);
+        
+        switch (protocol.clientOpcode) {
+            case (TftpEncoderDecoder.Opcode.LOGRQ):
+                if (split.length <= 1) {
+                    //set flag false
+                    System.out.println("invalid command");
+                } else {
+                    List<Byte> userNameBytes = new ArrayList<>();
+
+                    int userNameSize = 0;
+                    for (int i = 1; i < split.length; i++) {
+                        byte[] byteArray = split[i].getBytes();
+                        for (int j = 0; j < byteArray.length; j++) {
+                            userNameBytes.add(byteArray[j]);
+                        }
+                        userNameSize = userNameSize + byteArray.length;
+                    }
+                    byte[] messageToBytes = new byte[3 + userNameSize];
+                    messageToBytes[0] = 0;
+                    messageToBytes[1] = 7;
+                    int index = 2;
+                    for (byte b : userNameBytes) {
+                        messageToBytes[index] = b;
+                        index++;
+                    }
+                    messageToBytes[messageToBytes.length - 1] = 0;
+                    //set flag true
+
+                    sendClientPacket(messageToBytes, buffer);
+
+                }
+                break;
+
+            case (TftpEncoderDecoder.Opcode.DELRQ):
+                if (split.length <= 1) {
+                    //set flag false
+                    System.out.println("invalid command");
+                } else {
+                    List<Byte> fileNameBytes = new ArrayList<>();
+
+                    int fileNameSize = 0;
+                    for (int i = 1; i < split.length; i++) {
+                        byte[] byteArray = split[i].getBytes();
+                        for (int j = 0; j < byteArray.length; j++) {
+                            fileNameBytes.add(byteArray[j]);
+                        }
+                        fileNameSize = fileNameSize + byteArray.length;
+                    }
+                    byte[] messageToBytes = new byte[3 + fileNameSize];
+                    messageToBytes[0] = 0;
+                    messageToBytes[1] = 8;
+                    int index = 2;
+                    for (byte b : fileNameBytes) {
+                        messageToBytes[index] = b;
+                        index++;
+                    }
+                    messageToBytes[messageToBytes.length - 1] = 0;
+                    //set flag true
+
+                    sendClientPacket(messageToBytes, buffer);
+
+                }
+                break;
+
+            case (TftpEncoderDecoder.Opcode.RRQ):
+                String fileName = "";
+                if (split.length > 1) {
+                    for (int i = 1; i < split.length; i++) {
+                        fileName = fileName + " " + split[i];
+                    }
+                }
+
+                if (split.length <= 1) {
+                    //set flag false
+                    System.out.println("invalid command");
+                } else if (holder.getFileNames().contains(fileName)) {
+                    //set flag false
+                    System.out.println("file already exists!");
+                } else {
+                    List<Byte> fileNameBytes = new ArrayList<>();
+
+                    int fileNameSize = 0;
+                    for (int i = 1; i < split.length; i++) {
+                        byte[] byteArray = split[i].getBytes();
+                        for (int j = 0; j < byteArray.length; j++) {
+                            fileNameBytes.add(byteArray[j]);
+                        }
+                        fileNameSize = fileNameSize + byteArray.length;
+                    }
+                    byte[] messageToBytes = new byte[3 + fileNameSize];
+                    messageToBytes[0] = 0;
+                    messageToBytes[1] = 1;
+                    int index = 2;
+                    for (byte b : fileNameBytes) {
+                        messageToBytes[index] = b;
+                        index++;
+                    }
+                    messageToBytes[messageToBytes.length - 1] = 0;
+
+
+//                    String filePath = "./";
+//                    String fullPath = filePath + fileName;
+//                    try (FileOutputStream fos = new FileOutputStream(fullPath)) {
+//                        protocol.setFileNameCreated(fileName);
+//                        
+//                       // add to list
+//                    }catch (IOException e){
+//
+//                    }
+                    //set flag true
+                    sendClientPacket(messageToBytes, buffer);
+
+
+                }
+                break;
+
+            case (TftpEncoderDecoder.Opcode.WRQ):
+                String fileNameW = "";
+                if (split.length > 1) {
+                    for (int i = 1; i < split.length; i++) {
+                        fileName = fileNameW + " " + split[i];
+                    }
+                }
+
+                if (split.length <= 1) {
+                    //set flag false
+                    System.out.println("invalid command");
+                } else if (!holder.getFileNames().contains(fileNameW)) {
+                    //set flag false
+                    System.out.println("file doesn't exist!");
+                } else {
+                    List<Byte> fileNameBytes = new ArrayList<>();
+
+                    int fileNameSize = 0;
+                    for (int i = 1; i < split.length; i++) {
+                        byte[] byteArray = split[i].getBytes();
+                        for (int j = 0; j < byteArray.length; j++) {
+                            fileNameBytes.add(byteArray[j]);
+                        }
+                        fileNameSize = fileNameSize + byteArray.length;
+                    }
+                    byte[] messageToBytes = new byte[3 + fileNameSize];
+                    messageToBytes[0] = 0;
+                    messageToBytes[1] = 2;
+                    int index = 2;
+                    for (byte b : fileNameBytes) {
+                        messageToBytes[index] = b;
+                        index++;
+                    }
+                    messageToBytes[messageToBytes.length - 1] = 0;
+                    //set flag true
+                    protocol.setFileNameCreated(fileNameW);
+                    sendClientPacket(messageToBytes, buffer);
+
+                }
+
+                break;
+
+            case (TftpEncoderDecoder.Opcode.DIRQ):
+
+                byte[] messageBytesDIRQ = new byte[2];
+                messageBytesDIRQ[0] = 0;
+                messageBytesDIRQ[1] = 6;
+                //set flag true
+
+                sendClientPacket(messageBytesDIRQ, buffer);
+
+
+                break;
+
+            case (TftpEncoderDecoder.Opcode.DISC):
+                byte[] messageBytesDISC = new byte[2];
+                messageBytesDISC[0] = 0;
+                messageBytesDISC[1] = 10;
+                //set flag true
+
+                sendClientPacket(messageBytesDISC, buffer);
+
+                break;
+
+            default:
+                //set flag false
+                System.out.println("invalid command");
+                break;
+        }
+        
+    }
+
+    public static void sendClientPacket(byte[] message, BufferedOutputStream out) {
+        try {
+            out.write(message);
+            out.flush();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+}
