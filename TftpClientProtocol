@@ -1,0 +1,412 @@
+package bgu.spl.net.impl.tftp;
+import bgu.spl.net.api.MessagingProtocol;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
+import java.time.LocalDateTime;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+class holder{
+    private static List<String> fileNames;
+
+    static {
+        initializeFileNames();
+    }
+
+    private static void initializeFileNames() {
+        Path dir = Paths.get("./");
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            fileNames = new ArrayList<>();
+
+            // Iterate through the files in the folder
+            for (Path file : stream) {
+                // Add the file name to the list
+                fileNames.add(file.getFileName().toString());
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Public method to access fileNames from another class
+    public static List<String> getFileNames() {
+        return fileNames;
+    }
+
+    // Public method to add a new file name to the list
+    public static void addFileName(String fileName) {
+        fileNames.add(fileName);
+    }
+
+    public static void deleteFileName(String fileName) {
+        fileNames.remove(fileName);
+    }
+
+
+}
+
+class HashMapErrors{
+    public static ConcurrentHashMap<Integer,TFTPErrorPacket> errors = new ConcurrentHashMap<>();
+    public void HashMapErrors(){
+        TFTPErrorPacket errorPacket0 = new TFTPErrorPacket((short) 0, "Not defined, see error message (if any)");
+        errors.putIfAbsent(0, errorPacket0);
+
+        TFTPErrorPacket errorPacket1 = new TFTPErrorPacket((short) 1, "File not found – RRQ DELRQ of non-existing file");
+        errors.putIfAbsent(1, errorPacket1);
+
+        TFTPErrorPacket errorPacket2 = new TFTPErrorPacket((short) 2, "Access violation – File cannot be written, read or deleted");
+        errors.putIfAbsent(2, errorPacket2);
+
+        TFTPErrorPacket errorPacket3 = new TFTPErrorPacket((short) 3, "Disk full or allocation exceeded – No room in disk");
+        errors.putIfAbsent(3, errorPacket3);
+
+        TFTPErrorPacket errorPacket4 = new TFTPErrorPacket((short) 4, "Illegal TFTP operation – Unknown Opcode");
+        errors.putIfAbsent(4, errorPacket4);
+
+        TFTPErrorPacket errorPacket5 = new TFTPErrorPacket((short) 5, "File already exists – File name exists on WRQ");
+        errors.putIfAbsent(5, errorPacket5);
+
+        TFTPErrorPacket errorPacket6 = new TFTPErrorPacket((short) 6, "User not logged in – Any opcode received before Login completes");
+        errors.putIfAbsent(6, errorPacket6);
+
+        TFTPErrorPacket errorPacket7 = new TFTPErrorPacket((short) 7, " User already logged in – Login username already connected");
+        errors.putIfAbsent(7, errorPacket7);
+
+
+    }
+
+}
+
+public class TftpClientProtocol implements MessagingProtocol<byte[]> {
+
+    private boolean shouldTerminate = false;
+
+    ByteBuffer buffer = ByteBuffer.allocate(518); // the message i sent
+
+    protected byte[] protocolResponse = new byte[518];
+
+    public TftpEncoderDecoder.Opcode clientOpcode = TftpEncoderDecoder.Opcode.None;
+
+    TftpEncoderDecoder.Opcode RecievedOpcode = TftpEncoderDecoder.Opcode.None;
+
+    String fileActs = "";
+
+    protected short indexACK = 0;
+
+    private List<Byte> DIRQString = new ArrayList<>();
+
+    private List<Byte> clientFile = new ArrayList<>();
+
+
+    private HashMapErrors hashMapError = new HashMapErrors();
+
+    private List<Byte> dataFromServer = new ArrayList<>();
+    private String fileNameInProcess;
+
+
+    private byte[] makeError(int errorCode) {
+
+        switch (errorCode) {
+            case 0:
+                return this.hashMapError.errors.get(0).toByteArray();
+            case 1:
+                return this.hashMapError.errors.get(1).toByteArray();
+            case 2:
+                return this.hashMapError.errors.get(2).toByteArray();
+            case 3:
+                return this.hashMapError.errors.get(3).toByteArray();
+            case 4:
+                return this.hashMapError.errors.get(4).toByteArray();
+            case 5:
+                return this.hashMapError.errors.get(5).toByteArray();
+            case 6:
+                return this.hashMapError.errors.get(6).toByteArray();
+            case 7:
+                return this.hashMapError.errors.get(7).toByteArray();
+            default:
+                return null;
+        }
+    }
+
+
+    /**
+     * process the given message
+     *
+     * @param msg the received message
+     * @return the response to send or null if no response is expected by the client
+     */
+    private TftpEncoderDecoder.Opcode peekOpcode ( byte[] message){//Anni
+        assert message.length >= 2;
+        int u16Opcode = (message[1] & 0xFF) << 8 | (message[0] & 0xFF);
+        return TftpEncoderDecoder.Opcode.fromU16(u16Opcode);
+    }
+
+    @Override
+    public byte[] process(byte[] msg) {
+        this.RecievedOpcode = peekOpcode(msg); // no need it
+        switch (this.RecievedOpcode) {
+            // Tachles, we recevie acks and need to decide by the sent opcode what to do
+            case RRQ:
+
+
+            case WRQ:
+
+            case DATA:
+                switch (this.RequestedOpcode) {
+                    case RRQ:
+                        for (int i = 5; i < msg.length -2; i++) {
+                            clientFile.add(msg[i]);
+                        }
+                        short size  = (short)(((short)msg[3] & 0xFF) << 8 | ((short)msg[2] & 0xFF));
+                        if(size < 512){
+                            byte[] ackRRQ = new byte[]{0, 4, msg[2], msg[3]};
+                            this.RequestedOpcode = TftpEncoderDecoder.Opcode.None;
+                            try (FileOutputStream fileOutputStream = new FileOutputStream(this.fileActs, true)) {
+                                for (Byte b : clientFile) {
+                                    fileOutputStream.write(b);
+                                }
+                                System.out.println("Bytes written to file successfully.");
+                                this.clientFile.clear();
+                                this.RequestedOpcode = TftpEncoderDecoder.Opcode.None;
+
+                                return ackRRQ;
+                            } catch (IOException e) {
+                                byte[] error2 = makeError(2);
+                                return error2;
+
+                            }
+                        }
+                        byte[] ackRRQ = new byte[]{0, 4, msg[4], msg[5]};
+                        this.protocolResponse = ackRRQ;
+                        return this.protocolResponse;
+
+
+                    case DIRQ:
+                        for (int i = 5; i < msg.length -1; i++) {
+                            this.DIRQString.add(msg[i]);
+                        }
+                        short sizeDIRQ  = (short)(((short)msg[3] & 0xFF) << 8 | ((short)msg[2] & 0xFF));
+                        if(sizeDIRQ < 512){
+                            List<Byte> dirq = new ArrayList<>();
+                            for (int i=0; i<this.DIRQString.size(); i++){
+                                if(this.DIRQString.get(i) != (byte)0){
+                                    dirq.add(this.DIRQString.get(i));
+                                }
+                                else{
+                                    Byte[] byteArray = dirq.toArray(new Byte[dirq.size()]);
+                                    byte[] bytePrimitiveArray = new byte[byteArray.length];
+                                    for (int j = 0; j < byteArray.length; j++) {
+                                        bytePrimitiveArray[j] = byteArray[j];
+                                    }
+                                    String dirqString = new String(bytePrimitiveArray, StandardCharsets.UTF_8);
+                                    System.out.println(dirqString);
+                                    System.out.println("\n"); // new line?
+                                    dirq.clear();
+
+                                }
+                            }
+                            this.DIRQString.clear();
+                            byte[] ackDIRQ = new byte[]{0, 4, msg[2], msg[3]};
+                            this.RequestedOpcode = TftpEncoderDecoder.Opcode.None;
+                            return ackDIRQ;
+                        }
+                        byte[] ackDIRQ = new byte[]{0, 4, msg[2], msg[3]};
+                        return ackDIRQ;
+                }
+
+
+
+            case ACK:
+                System.out.println("ACK" + msg[2] + msg[3]);
+                if(this.RequestedOpcode == TftpEncoderDecoder.Opcode.WRQ) {
+                    short blockNumber = (short) (((short) msg[3] & 0xFF) << 8 | ((short) msg[2] & 0xFF));
+                    readData(blockNumber++);
+                    return this.protocolResponse;
+                }
+                if(this.RequestedOpcode == TftpEncoderDecoder.Opcode.DISC){
+                    byte[] ack = new byte[]{0, 4, 0, 0};
+                    this.protocolResponse = ack;
+                    this.shouldTerminate = true;
+                    return this.protocolResponse;
+                }
+
+            case ERROR:
+                short AnsERROR = (short) (((short) msg[3] & 0xFF) << 8 | ((short) msg[2] & 0xFF));
+                String ErrorString = new String(msg, 3, msg.length - 2, StandardCharsets.UTF_8);
+                System.out.println("ERROR" + AnsERROR + ErrorString);
+
+
+//            case LOGRQ:
+//                short AnsLOGRQ = (short) (((short) msg[3] & 0xFF) << 8 | ((short) msg[2] & 0xFF));
+//                if (AnsLOGRQ != 0) {
+//                    byte[] error = makeError(7);
+//                    return error;
+//                } else {
+//                    byte[] ack = new byte[]{0, 4, 0, 0};
+//                    this.protocolResponse = ack;
+//                    return this.protocolResponse;
+//                }
+
+
+            case BCAST:
+                String fileName = new String(msg, 3, msg.length - 2, StandardCharsets.UTF_8); // we need to save the file name and made it after receiving accept to the operation
+                if (msg[2] == 0) // if the file is not found in the server
+                    System.out.println("BCAST" + "del" + fileName);
+                else
+                    System.out.println("BCAST" + "add" + fileName);
+
+
+            default:
+                return null;
+
+        }
+    }
+
+    /**
+     * @return true if the connection should be terminated
+     */
+    public boolean shouldTerminate() {
+        // Thread interrupt ?
+        return this.shouldTerminate;
+    }
+
+    private void readData(short blockNumber) {
+        List<Byte> data = new ArrayList<>();
+        short capacity = 0;
+        for(int i = this.indexACK; i < this.dataFromServer.size(); i++){
+            data.add(this.dataFromServer.get(i));
+            this.indexACK++;
+            capacity++;
+            if(capacity == 512 ||  i == this.dataFromServer.size()-1){
+                sendDataPacket(capacity, blockNumber, data);
+            }
+        }
+
+    }
+    public void sendDataPacket(short size, short blockNumber,  List<Byte> data){
+        byte[] packetSize = new byte[]{(byte) (size >> 8), (byte) (size & 0xff)};
+
+        byte[] dataPacket = new byte[size + 7];
+        dataPacket[0] = (byte)0;
+        dataPacket[1] = (byte)3;
+        dataPacket[2] = packetSize[0];
+        dataPacket[3] = packetSize[1];
+
+        byte[] blockNumberByte = new byte[]{(byte) (blockNumber >> 8), (byte) (blockNumber & 0xff)};
+        dataPacket[4] = blockNumberByte[0];
+        dataPacket[5] = blockNumberByte[1];
+
+        int j = 6;
+        for (int i = 0; i < data.size(); i++) {
+            dataPacket[j] = data.get(i);
+            j++;
+        }
+
+        dataPacket[dataPacket.length-1] = (byte) 0;
+        this.protocolResponse = dataPacket;
+
+        if(this.indexACK == this.dataFromServer.size()-1){
+            this.dataFromServer.clear();
+            this.indexACK = 0;
+        }
+    }
+    private void PreparingTask(String message) {
+        byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
+        String[] split = message.split(" ");
+        this.RequestedOpcode = peekOpcode(messageBytes);
+        switch (split[0]) {
+            case "RRQ":
+
+                String fileNameR = new String(messageBytes, 2, messageBytes.length - 2, StandardCharsets.UTF_8);
+                String filePathR = "./" + fileNameR; // Path to the file
+                File fileR = new File(filePathR);
+                if (fileR.exists()) {
+                    byte[] error5 = makeError(5);
+                    short AnsERROR = (short) (((short) error5[3] & 0xFF) << 8 | ((short) error5[2] & 0xFF));
+                    String ErrorString = new String(error5, 3, error5.length - 2, StandardCharsets.UTF_8);
+                    System.out.println("ERROR" + AnsERROR + ErrorString);
+                } else {
+                    try {
+                        fileR.createNewFile();
+                        this.fileActs = filePathR;
+                        this.RequestedOpcode = TftpEncoderDecoder.Opcode.RRQ;
+                        System.out.println("File created: " + fileR.getName() + ",ready to recieve data");
+                    } catch (IOException e) {
+                        byte[] error2 = makeError(2);
+                        short AnsERROR = (short) (((short) error2[3] & 0xFF) << 8 | ((short) error2[2] & 0xFF));
+                        String ErrorString = new String(error2, 3, error2.length - 2, StandardCharsets.UTF_8);
+                        System.out.println("ERROR" + AnsERROR + ErrorString);
+                        this.RequestedOpcode = TftpEncoderDecoder.Opcode.None;
+                    }
+
+                }
+
+
+            case "WRQ":
+                String fileNameW = new String(messageBytes, 2, messageBytes.length - 2, StandardCharsets.UTF_8);
+                String filePathW = "./" + fileNameW; // Path to the file
+                File fileW = new File(filePathW);
+                if (fileW.exists()) {
+                    try (FileInputStream fileInputStream = new FileInputStream(filePathW)) {
+                        int byteRead;
+                        while ((byteRead = fileInputStream.read()) != -1) {
+                            clientFile.add((byte) byteRead);
+                        }
+                        this.RequestedOpcode = TftpEncoderDecoder.Opcode.WRQ;
+                    } catch (IOException e) {
+                        byte[] error2 = makeError(2);
+                        short AnsERROR = (short) (((short) error2[3] & 0xFF) << 8 | ((short) error2[2] & 0xFF));
+                        String ErrorString = new String(error2, 3, error2.length - 2, StandardCharsets.UTF_8);
+                        System.out.println("ERROR" + AnsERROR + ErrorString);
+                        this.RequestedOpcode = TftpEncoderDecoder.Opcode.None;
+                    }
+
+
+                }
+        }
+
+
+//
+    }
+
+    public void setClientOpcode(String opcode) {
+        switch (opcode) {
+            case ("LOGRQ"):
+                this.clientOpcode = TftpEncoderDecoder.Opcode.fromU16(7);
+                break;
+            case ("RRQ"):
+                this.clientOpcode = TftpEncoderDecoder.Opcode.fromU16(1);
+                break;
+            case ("WRQ"):
+                this.clientOpcode = TftpEncoderDecoder.Opcode.fromU16(2);
+                break;
+            case ("DIRQ"):
+                this.clientOpcode = TftpEncoderDecoder.Opcode.fromU16(6);
+                break;
+            case ("DELRQ"):
+                this.clientOpcode = TftpEncoderDecoder.Opcode.fromU16(8);
+                break;
+            case ("DISC"):
+                this.clientOpcode = TftpEncoderDecoder.Opcode.fromU16(10);
+                break;
+        }
+    }
+
+    public void setFileNameCreated(String name){
+        this.fileNameInProcess = name;
+    }
+}
+
